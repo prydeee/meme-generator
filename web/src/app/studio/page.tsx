@@ -117,7 +117,7 @@ interface ResultUploadData {
 
 export default function StudioPage() {
   const me = useMe();
-  const status = useSubscriptionStatus();
+  const status = useSubscriptionStatus(me.data?.id, !me.isPending);
   const memes = useMemes();
   const prepare = usePrepareUpload();
   const complete = useCompleteMeme();

@@ -29,7 +29,7 @@ export function SiteHeader() {
   const me = useMe();
   const logout = useLogout();
   const user = me.data;
-  const sub = useSubscriptionStatus();
+  const sub = useSubscriptionStatus(me.data?.id, !me.isPending);
 
   // Countdown masa aktif: tick tiap detik agar sisa waktu selalu berjalan.
   const [now, setNow] = useState(() => Date.now());

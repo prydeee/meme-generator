@@ -5,6 +5,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCheckout, usePlans, useSubscriptionStatus } from "@/lib/queries";
+import { useMe } from "@/lib/auth";
 import { describeError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +20,8 @@ function formatIdr(n: number) {
 
 export default function PricingPage() {
   const plans = usePlans();
-  const status = useSubscriptionStatus();
+  const me = useMe();
+  const status = useSubscriptionStatus(me.data?.id, !me.isPending);
   const checkout = useCheckout();
   const router = useRouter();
 
