@@ -16,6 +16,7 @@ import (
 // Diimplementasikan oleh modul subscription lewat structural typing.
 type Gate interface {
 	CanCreate(ctx context.Context, userID string) error
+	CanUse(ctx context.Context, userID string) error
 }
 
 type Service struct {
@@ -67,7 +68,7 @@ func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, content
 // ResultUpload mengembalikan presigned PUT URL untuk gambar hasil render
 // (canvas) milik meme <id>; complete kemudian menyimpan URL publiknya.
 func (s *Service) ResultUpload(ctx context.Context, userID, id string) (UploadResponse, error) {
-	if err := s.gate.CanCreate(ctx, userID); err != nil {
+	if err := s.gate.CanUse(ctx, userID); err != nil {
 		return UploadResponse{}, err
 	}
 	if _, err := s.repo.GetByID(ctx, id, userID); err != nil {
@@ -88,7 +89,7 @@ func (s *Service) ResultUpload(ctx context.Context, userID, id string) (UploadRe
 }
 
 func (s *Service) Complete(ctx context.Context, userID, id, resultURL string) (Meme, error) {
-	if err := s.gate.CanCreate(ctx, userID); err != nil {
+	if err := s.gate.CanUse(ctx, userID); err != nil {
 		return Meme{}, err
 	}
 	return s.repo.SetResultURL(ctx, id, userID, resultURL)

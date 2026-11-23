@@ -35,8 +35,8 @@ func (r *Repository) Create(ctx context.Context, m Meme) (Meme, error) {
 
 func (r *Repository) GetByID(ctx context.Context, id, userID string) (Meme, error) {
 	row := r.pool.QueryRow(ctx,
-		`SELECT id, user_id, title, base_url, result_url, top_text, bottom_text, font_size, created_at, updated_at
-		 FROM memes WHERE id = $1`, id)
+		`SELECT id, user_id, title, base_url, result_url, top_text, bottom_text, font_size, created_at
+		 FROM memes WHERE id = $1 AND user_id = $2`, id, userID)
 	var m Meme
 	err := row.Scan(&m.ID, &m.UserID, &m.Title, &m.BaseImageURL, &m.ResultURL, &m.TopText, &m.BottomText, &m.FontSize, &m.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -48,10 +48,10 @@ func (r *Repository) GetByID(ctx context.Context, id, userID string) (Meme, erro
 func (r *Repository) SetResultURL(ctx context.Context, id, userID, resultURL string) (Meme, error) {
 	const q = `
 		UPDATE memes SET result_url = $2
-		WHERE id = $1
+		WHERE id = $1 AND user_id = $3
 		RETURNING id, user_id, title, base_url, result_url, top_text, bottom_text, font_size, created_at`
 	var out Meme
-	err := r.pool.QueryRow(ctx, q, id, resultURL).Scan(
+	err := r.pool.QueryRow(ctx, q, id, resultURL, userID).Scan(
 		&out.ID, &out.UserID, &out.Title, &out.BaseImageURL, &out.ResultURL,
 		&out.TopText, &out.BottomText, &out.FontSize, &out.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -91,7 +91,7 @@ func (r *Repository) ListByUser(ctx context.Context, userID string, limit, offse
 }
 
 func (r *Repository) Delete(ctx context.Context, id, userID string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM memes WHERE id = $1`, id)
+	tag, err := r.pool.Exec(ctx, `DELETE FROM memes WHERE id = $1 AND user_id = $2`, id, userID)
 	if err != nil {
 		return fmt.Errorf("meme repository: delete gagal: %w", err)
 	}

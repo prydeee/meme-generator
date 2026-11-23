@@ -37,6 +37,17 @@ func (g subscriptionGate) CanCreate(ctx context.Context, userID string) error {
 	return nil
 }
 
+func (g subscriptionGate) CanUse(ctx context.Context, userID string) error {
+	status, err := g.sub.Status(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if !status.Subscribed {
+		return meme.ErrNotSubscribedGate
+	}
+	return nil
+}
+
 func Mount(mux *http.ServeMux, pool *pgxpool.Pool, rdb *redis.Client, s3Client *s3.Client, tokens *token.Manager, cfg config.Config) {
 	authHandler := auth.NewModule(pool, tokens)
 	authMW := middleware.Auth(tokens)
