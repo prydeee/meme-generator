@@ -15,6 +15,7 @@ import type {
 export const queryKeys = {
   plans: ["plans"] as const,
   subscription: ["subscription"] as const,
+  subscriptionForUser: (userID: string) => ["subscription", userID] as const,
   memes: (limit: number, offset: number) => ["memes", limit, offset] as const,
 };
 
@@ -26,14 +27,22 @@ export function usePlans() {
   });
 }
 
-export function useSubscriptionStatus() {
+export function useSubscriptionStatus(userID?: string, authResolved = true) {
+  const queryKey = userID
+    ? queryKeys.subscriptionForUser(userID)
+    : queryKeys.subscription;
+
   return useQuery({
-    queryKey: queryKeys.subscription,
+    queryKey,
+    enabled: authResolved && Boolean(userID),
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () =>
-      unwrap<SubscriptionStatus>(await api.get("/api/v1/subscription/status")),
-    // BUG: status dianggap abadi — setelah beli/expired, UI tidak pernah
-    // mengambil ulang sampai invalidate manual / reload penuh.
-    staleTime: Number.POSITIVE_INFINITY,
+      unwrap<SubscriptionStatus>(
+        await api.get("/api/v1/subscription/status", {
+          params: { _: Date.now() },
+        }),
+      ),
   });
 }
 
