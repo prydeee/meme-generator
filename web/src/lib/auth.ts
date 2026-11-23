@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "@/lib/api";
+import { clearCheckoutIntents } from "@/lib/queries";
 import type { ApiEnvelope } from "@/lib/types";
 
 export interface AuthUser {
@@ -57,6 +58,7 @@ export function useLogout() {
   return useMutation({
     mutationFn: async () => api.post("/api/v1/auth/logout"),
     onSuccess: () => {
+      clearCheckoutIntents();
       qc.clear();
       window.location.href = "/";
     },

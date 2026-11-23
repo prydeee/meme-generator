@@ -57,12 +57,56 @@ func (r *Repository) GetPlanByCode(ctx context.Context, code string) (Plan, erro
 // CreateSubscription membuat langganan pending + pembayaran pending dalam satu transaksi.
 // idempotencyKey disimpan di payments: replay dengan key sama mengembalikan
 // payment yang sama (unique index sebagai safety net).
-func (r *Repository) CreateSubscription(ctx context.Context, userID string, p Plan, reference, idempotencyKey string) (Subscription, Payment, error) {
+func (r *Repository) CreateSubscription(ctx context.Context, userID string, p Plan, reference, idempotencyKey string) (Subscription, Payment, bool, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return Subscription{}, Payment{}, err
+		return Subscription{}, Payment{}, false, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Serialize checkout creation per user so concurrent requests cannot both
+	// pass the pending-checkout check and insert separate rows.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, userID); err != nil {
+		return Subscription{}, Payment{}, false, err
+	}
+
+	var existing Subscription
+	var existingPayment Payment
+	err = tx.QueryRow(ctx, `
+		SELECT s.id, s.user_id, s.plan_id, s.status, s.starts_at, s.ends_at,
+		       p.id, p.subscription_id, p.amount_idr, p.status, p.reference
+		FROM subscriptions s
+		JOIN payments p ON p.subscription_id = s.id
+		WHERE s.user_id = $1 AND s.status = 'pending' AND p.status = 'pending'
+		ORDER BY s.created_at DESC
+		LIMIT 1`, userID).Scan(
+		&existing.ID, &existing.UserID, &existing.PlanID, &existing.Status,
+		&existing.StartsAt, &existing.EndsAt, &existingPayment.ID,
+		&existingPayment.SubscriptionID, &existingPayment.AmountIDR,
+		&existingPayment.Status, &existingPayment.Reference,
+	)
+	if err == nil {
+		if err := tx.Commit(ctx); err != nil {
+			return Subscription{}, Payment{}, false, err
+		}
+		return existing, existingPayment, false, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return Subscription{}, Payment{}, false, fmt.Errorf("subscription repository: pending checkout lookup gagal: %w", err)
+	}
+
+	var active bool
+	err = tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM subscriptions
+			WHERE user_id = $1 AND status = 'active' AND ends_at > now()
+		)`, userID).Scan(&active)
+	if err != nil {
+		return Subscription{}, Payment{}, false, fmt.Errorf("subscription repository: active subscription lookup gagal: %w", err)
+	}
+	if active {
+		return Subscription{}, Payment{}, false, ErrAlreadySubscribed
+	}
 
 	var sub Subscription
 	err = tx.QueryRow(ctx, `
@@ -72,7 +116,7 @@ func (r *Repository) CreateSubscription(ctx context.Context, userID string, p Pl
 		userID, p.ID,
 	).Scan(&sub.ID, &sub.UserID, &sub.PlanID, &sub.Status, &sub.StartsAt, &sub.EndsAt)
 	if err != nil {
-		return Subscription{}, Payment{}, fmt.Errorf("subscription repository: create subscription gagal: %w", err)
+		return Subscription{}, Payment{}, false, fmt.Errorf("subscription repository: create subscription gagal: %w", err)
 	}
 
 	var pay Payment
@@ -83,28 +127,28 @@ func (r *Repository) CreateSubscription(ctx context.Context, userID string, p Pl
 		sub.ID, p.PriceIDR, reference, idempotencyKey,
 	).Scan(&pay.ID, &pay.SubscriptionID, &pay.AmountIDR, &pay.Status, &pay.Reference)
 	if err != nil {
-		return Subscription{}, Payment{}, fmt.Errorf("subscription repository: create payment gagal: %w", err)
+		return Subscription{}, Payment{}, false, fmt.Errorf("subscription repository: create payment gagal: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return Subscription{}, Payment{}, err
+		return Subscription{}, Payment{}, false, err
 	}
-	return sub, pay, nil
+	return sub, pay, true, nil
 }
 
 // CheckoutByIdempotencyKey mengembalikan checkout yang sudah ada untuk key
 // yang sama (replay). ok=false berarti belum ada.
-func (r *Repository) CheckoutByIdempotencyKey(ctx context.Context, key string) (CheckoutResponse, bool, error) {
+func (r *Repository) CheckoutByIdempotencyKey(ctx context.Context, userID, key string) (CheckoutResponse, bool, error) {
 	const q = `
 		SELECT s.id, s.user_id, s.plan_id, s.status, s.starts_at, s.ends_at,
 		       p.id, p.subscription_id, p.amount_idr, p.status, p.reference
 		FROM payments p
 		JOIN subscriptions s ON s.id = p.subscription_id
-		WHERE p.idempotency_key = $1`
+		WHERE s.user_id = $1 AND p.idempotency_key = $2`
 	var (
 		res CheckoutResponse
 	)
-	err := r.pool.QueryRow(ctx, q, key).Scan(
+	err := r.pool.QueryRow(ctx, q, userID, key).Scan(
 		&res.Subscription.ID, &res.Subscription.UserID, &res.Subscription.PlanID,
 		&res.Subscription.Status, &res.Subscription.StartsAt, &res.Subscription.EndsAt,
 		&res.Payment.ID, &res.Payment.SubscriptionID, &res.Payment.AmountIDR,
@@ -128,6 +172,22 @@ func (r *Repository) ConfirmPayment(ctx context.Context, reference string) (Subs
 		return Subscription{}, Payment{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	var userID string
+	err = tx.QueryRow(ctx, `
+		SELECT s.user_id
+		FROM payments p
+		JOIN subscriptions s ON s.id = p.subscription_id
+		WHERE p.reference = $1`, reference).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Subscription{}, Payment{}, ErrPaymentFailed
+	}
+	if err != nil {
+		return Subscription{}, Payment{}, err
+	}
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, userID); err != nil {
+		return Subscription{}, Payment{}, err
+	}
 
 	var pay Payment
 	err = tx.QueryRow(ctx, `

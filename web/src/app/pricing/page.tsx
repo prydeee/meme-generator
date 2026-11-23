@@ -22,7 +22,7 @@ export default function PricingPage() {
   const plans = usePlans();
   const me = useMe();
   const status = useSubscriptionStatus(me.data?.id, !me.isPending);
-  const checkout = useCheckout();
+  const checkout = useCheckout(me.data?.id, !me.isPending);
   const router = useRouter();
 
   return (
@@ -66,7 +66,7 @@ export default function PricingPage() {
               <Button
                 className="w-full"
                 onClick={() =>
-                  checkout.mutate(plan.code, {
+                  checkout.mutate(checkout.beginCheckout(plan.code), {
                     onSuccess: (res) =>
                       router.push(`/checkout/${res.payment.reference}`),
                   })
