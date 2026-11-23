@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useForm } from "@tanstack/react-form";
 
 import { Button } from "@/components/ui/button";
@@ -15,14 +14,6 @@ import { apiErrorMessage } from "@/lib/api";
 export default function LoginPage() {
   const router = useRouter();
   const login = useLogin();
-
-  // BUG: kalau cookie auth masih ada (misal logout gagal menghapusnya),
-  // langsung dilempar ke halaman utama — memicu redirect bolak-balik.
-  useEffect(() => {
-    if (document.cookie.includes("meme_access_token")) {
-      router.replace("/");
-    }
-  }, [router]);
 
   const form = useForm({
     defaultValues: { email: "", password: "" },

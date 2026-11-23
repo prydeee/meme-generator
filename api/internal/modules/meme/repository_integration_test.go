@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -174,7 +174,7 @@ func TestPrepareUploadPresignFailureCleansFixtureRecord(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM memes WHERE user_id=$1`, userID).Scan(&before); err != nil {
 		t.Fatalf("hitung sebelum: %v", err)
 	}
-	if _, err := service.PrepareUpload(ctx, userID, "TKT-108 presign failure", ".png", "image/png"); err == nil || !strings.Contains(err.Error(), "presign gagal") {
+	if _, err := service.PrepareUpload(ctx, userID, "TKT-108 presign failure", ".png", "image/png", 2); err == nil || !strings.Contains(err.Error(), "presign gagal") {
 		t.Fatalf("PrepareUpload error = %v, want presign failure", err)
 	}
 	var after int

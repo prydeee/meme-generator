@@ -24,6 +24,7 @@ type prepareUploadDTO struct {
 	Title       string `json:"title"`
 	Filename    string `json:"filename"`
 	ContentType string `json:"contentType"` // dikirim klien, dipakai mentah di presign
+	Size        int64  `json:"size"`
 }
 
 // PrepareUpload: user minta URL upload untuk gambar dasarnya.
@@ -39,7 +40,7 @@ func (h *Handler) PrepareUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ext := path.Ext(dto.Filename)
-	res, err := h.service.PrepareUpload(r.Context(), userID, dto.Title, ext, dto.ContentType)
+	res, err := h.service.PrepareUpload(r.Context(), userID, dto.Title, ext, dto.ContentType, dto.Size)
 	if err != nil {
 		writeError(w, err)
 		return

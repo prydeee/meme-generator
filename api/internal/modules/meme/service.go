@@ -52,14 +52,10 @@ func NewService(repo *Repository, s3Client *s3.Client, cfg config.StorageConfig,
 
 // PrepareUpload membuat record meme (pending) dan mengembalikan presigned PUT URL
 // untuk mengunggah gambar dasar langsung ke S3/Garage.
-func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, contentType string) (UploadResponse, error) {
-	if !allowedExt(ext) {
+func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, contentType string, size int64) (UploadResponse, error) {
+	if !allowedExt(ext) || !validUploadSize(size) {
 		return UploadResponse{}, ErrInvalidFile
 	}
-	// BUG: tidak ada allowlist ekstensi dan tidak ada batas ukuran file.
-	// Semua tipe file lolos (pdf, zip, html, exe) dan presigned PUT tanpa
-	// Content-Length berarti ukurannya tak terbatas. Fix: validasi ext
-	// (allowedExt) + batas ukuran di presign/handler.
 	objectKey := fmt.Sprintf("base/%s%s", token.RandomHex(12), strings.ToLower(ext))
 
 	m, err := s.repo.CreateWithQuota(ctx, Meme{
@@ -76,7 +72,7 @@ func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, content
 		uploadURL, err = s.presignPut(ctx, objectKey, contentType)
 	} else {
 		presign := s3.NewPresignClient(s.s3)
-		input := &s3.PutObjectInput{Bucket: &s.bucket, Key: &objectKey, ContentType: &contentType}
+		input := &s3.PutObjectInput{Bucket: &s.bucket, Key: &objectKey, ContentType: &contentType, ContentLength: &size}
 		req, presignErr := presign.PresignPutObject(ctx, input, s3.WithPresignExpires(maxPresignTTL))
 		err = presignErr
 		if req != nil {
@@ -90,6 +86,10 @@ func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, content
 		return UploadResponse{}, fmt.Errorf("meme service: presign gagal: %w", err)
 	}
 	return UploadResponse{ID: m.ID, UploadURL: uploadURL, BaseURL: m.BaseImageURL}, nil
+}
+
+func validUploadSize(size int64) bool {
+	return size > 0 && size <= maxUploadSize
 }
 
 // ResultUpload mengembalikan presigned PUT URL untuk gambar hasil render

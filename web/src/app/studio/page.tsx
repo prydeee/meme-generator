@@ -165,7 +165,7 @@ export default function StudioPage() {
       imgRef.current = img;
 
       // 1) presign gambar dasar
-      const prepared = await prepare.mutateAsync({ title, filename: file.name });
+      const prepared = await prepare.mutateAsync({ title, filename: file.name, size: file.size });
       // 2) unggah gambar dasar ke Garage
       await putToS3(prepared.uploadUrl, file);
 

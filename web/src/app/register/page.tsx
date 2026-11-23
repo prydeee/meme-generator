@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useForm } from "@tanstack/react-form";
 
 import { Button } from "@/components/ui/button";
@@ -15,13 +14,6 @@ import { apiErrorMessage } from "@/lib/api";
 export default function RegisterPage() {
   const router = useRouter();
   const register = useRegister();
-
-  // BUG: sama seperti /login — cookie ada → lempar ke halaman utama.
-  useEffect(() => {
-    if (document.cookie.includes("meme_access_token")) {
-      router.replace("/");
-    }
-  }, [router]);
 
   const form = useForm({
     defaultValues: { name: "", email: "", password: "" },

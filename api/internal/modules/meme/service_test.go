@@ -36,6 +36,15 @@ func TestQuotaAvailable(t *testing.T) {
 	}
 }
 
+func TestValidUploadSizeEnforcesTenMegabytes(t *testing.T) {
+	if !validUploadSize(10 << 20) {
+		t.Fatal("10 MiB upload should be accepted")
+	}
+	if validUploadSize((10 << 20) + 1) {
+		t.Fatal("upload larger than 10 MiB should be rejected")
+	}
+}
+
 func TestAllowedExtIsCaseInsensitive(t *testing.T) {
 	for _, ext := range []string{".jpg", ".JPG", ".jpeg", ".PNG", ".gif", ".WEBP"} {
 		if !allowedExt(ext) {
