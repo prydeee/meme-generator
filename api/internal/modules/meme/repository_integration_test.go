@@ -7,10 +7,110 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestCreateWithQuotaConcurrentPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL tidak diset")
+	}
+
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
+		t.Fatalf("buat pool PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("ping PostgreSQL: %v", err)
+	}
+
+	userID := testUUID(t)
+	email := "tkt109-" + userID + "@example.test"
+	var planID string
+	var maxMemes int32
+	var durationDays int32
+	if err := pool.QueryRow(ctx, `
+		SELECT id, max_memes, duration_days
+		FROM plans WHERE active = true AND max_memes > 0
+		ORDER BY max_memes ASC LIMIT 1`).Scan(&planID, &maxMemes, &durationDays); err != nil {
+		t.Fatalf("ambil plan quota: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users (id, email, name, password_hash)
+		VALUES ($1, $2, 'TKT-109 fixture', 'not-a-login-password')`, userID, email)
+	if err != nil {
+		t.Fatalf("buat user fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID); err != nil {
+			t.Errorf("cleanup user fixture: %v", err)
+		}
+	})
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO subscriptions (user_id, plan_id, status, starts_at, ends_at)
+		VALUES ($1, $2, 'active', now(), now() + make_interval(days => $3))`,
+		userID, planID, durationDays)
+	if err != nil {
+		t.Fatalf("buat subscription fixture: %v", err)
+	}
+
+	repo := NewPostgresRepository(pool)
+	initial := int(maxMemes) - 2
+	for i := 0; i < initial; i++ {
+		if _, err := repo.CreateWithQuota(ctx, Meme{
+			UserID: userID, Title: "TKT-109 initial " + strconv.Itoa(i), BaseImageURL: "base/fixture-" + strconv.Itoa(i),
+		}); err != nil {
+			t.Fatalf("buat meme awal %d/%d: %v", i+1, initial, err)
+		}
+	}
+
+	const concurrentRequests = 6
+	results := make(chan error, concurrentRequests)
+	var wg sync.WaitGroup
+	for i := 0; i < concurrentRequests; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			_, err := repo.CreateWithQuota(ctx, Meme{
+				UserID: userID, Title: "TKT-109 concurrent " + strconv.Itoa(i), BaseImageURL: "base/concurrent-" + strconv.Itoa(i),
+			})
+			results <- err
+		}(i)
+	}
+	wg.Wait()
+	close(results)
+
+	var success, rejected int
+	for err := range results {
+		switch {
+		case err == nil:
+			success++
+		case errors.Is(err, ErrNotSubscribedGate):
+			rejected++
+		default:
+			t.Fatalf("concurrent request menghasilkan error tak terduga: %v", err)
+		}
+	}
+	if success != 2 || rejected != concurrentRequests-2 {
+		t.Fatalf("hasil concurrency: success=%d rejected=%d, want success=2 rejected=%d", success, rejected, concurrentRequests-2)
+	}
+
+	var count int64
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM memes WHERE user_id = $1`, userID).Scan(&count); err != nil {
+		t.Fatalf("hitung meme fixture: %v", err)
+	}
+	if count != int64(maxMemes) {
+		t.Fatalf("jumlah meme=%d, want quota=%d", count, maxMemes)
+	}
+}
 
 func testUUID(t *testing.T) string {
 	t.Helper()

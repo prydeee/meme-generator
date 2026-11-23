@@ -62,7 +62,7 @@ func (s *Service) PrepareUpload(ctx context.Context, userID, title, ext, content
 	// (allowedExt) + batas ukuran di presign/handler.
 	objectKey := fmt.Sprintf("base/%s%s", token.RandomHex(12), strings.ToLower(ext))
 
-	m, err := s.repo.Create(ctx, Meme{
+	m, err := s.repo.CreateWithQuota(ctx, Meme{
 		UserID: userID, Title: title,
 		BaseImageURL: s.publicURL(objectKey),
 	})

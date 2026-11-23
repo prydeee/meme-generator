@@ -165,7 +165,10 @@ export function useCompleteMeme() {
           resultUrl: input.resultUrl,
         }),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["memes"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["memes"] });
+      return qc.invalidateQueries({ queryKey: queryKeys.subscription });
+    },
   });
 }
 
